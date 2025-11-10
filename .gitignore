@@ -1,0 +1,12 @@
+# Visual Studio Code
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Project specific
+checkpoints/
+outputs/
+inference_results/
