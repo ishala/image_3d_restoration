@@ -6,6 +6,7 @@ import numpy as np
 import open3d as o3d
 from PIL import Image
 import cv2
+from tqdm import tqdm
 
 
 def depth_to_point_cloud(depth_map, rgb_image, intrinsics=None, depth_scale=1.0, max_depth=10.0):
@@ -88,41 +89,62 @@ def point_cloud_to_mesh(pcd, method='poisson', depth=9):
     
     # Estimate normals if not present
     if not pcd.has_normals():
-        pcd.estimate_normals(
-            search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
-        )
-        pcd.orient_normals_consistent_tangent_plane(k=10)
+        print("  ⏳ Estimating normals...")
+        with tqdm(total=2, desc="  Normal estimation", leave=False) as pbar:
+            pcd.estimate_normals(
+                search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30)
+            )
+            pbar.update(1)
+            pcd.orient_normals_consistent_tangent_plane(k=10)
+            pbar.update(1)
     
     if method == 'poisson':
         # Poisson surface reconstruction
-        mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-            pcd, depth=depth, width=0, scale=1.1, linear_fit=False
-        )
+        print(f"  ⏳ Running Poisson reconstruction (depth={depth})...")
+        with tqdm(total=1, desc="  Poisson reconstruction", leave=False) as pbar:
+            mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+                pcd, depth=depth, width=0, scale=1.1, linear_fit=False
+            )
+            pbar.update(1)
         
         # Remove low density vertices (outliers)
-        densities = np.asarray(densities)
-        density_threshold = np.quantile(densities, 0.01)
-        vertices_to_remove = densities < density_threshold
-        mesh.remove_vertices_by_mask(vertices_to_remove)
+        print("  ⏳ Cleaning mesh...")
+        with tqdm(total=1, desc="  Removing outliers", leave=False) as pbar:
+            densities = np.asarray(densities)
+            density_threshold = np.quantile(densities, 0.01)
+            vertices_to_remove = densities < density_threshold
+            mesh.remove_vertices_by_mask(vertices_to_remove)
+            pbar.update(1)
         
     elif method == 'ball_pivoting':
         # Ball pivoting algorithm
-        distances = pcd.compute_nearest_neighbor_distance()
-        avg_dist = np.mean(distances)
-        radii = [avg_dist * r for r in [0.5, 1.0, 1.5, 2.0]]
-        mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
-            pcd, o3d.utility.DoubleVector(radii)
-        )
+        print("  ⏳ Running ball pivoting algorithm...")
+        with tqdm(total=2, desc="  Ball pivoting", leave=False) as pbar:
+            distances = pcd.compute_nearest_neighbor_distance()
+            avg_dist = np.mean(distances)
+            pbar.update(1)
+            radii = [avg_dist * r for r in [0.5, 1.0, 1.5, 2.0]]
+            mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+                pcd, o3d.utility.DoubleVector(radii)
+            )
+            pbar.update(1)
     
     else:
         raise ValueError(f"Unknown method: {method}")
     
     # Post-processing
-    mesh.compute_vertex_normals()
-    mesh.remove_degenerate_triangles()
-    mesh.remove_duplicated_triangles()
-    mesh.remove_duplicated_vertices()
-    mesh.remove_non_manifold_edges()
+    print("  ⏳ Post-processing mesh...")
+    with tqdm(total=5, desc="  Cleanup", leave=False) as pbar:
+        mesh.compute_vertex_normals()
+        pbar.update(1)
+        mesh.remove_degenerate_triangles()
+        pbar.update(1)
+        mesh.remove_duplicated_triangles()
+        pbar.update(1)
+        mesh.remove_duplicated_vertices()
+        pbar.update(1)
+        mesh.remove_non_manifold_edges()
+        pbar.update(1)
     
     print(f"✅ Mesh created: {len(mesh.vertices)} vertices, {len(mesh.triangles)} triangles")
     
@@ -144,10 +166,16 @@ def create_textured_mesh(depth_map, rgb_image, intrinsics=None, method='poisson'
         o3d.geometry.TriangleMesh with vertex colors
     """
     # Step 1: Create point cloud
-    pcd = depth_to_point_cloud(depth_map, rgb_image, intrinsics, depth_scale)
+    print("  ⏳ Creating point cloud from depth map...")
+    with tqdm(total=1, desc="  Point cloud", leave=False) as pbar:
+        pcd = depth_to_point_cloud(depth_map, rgb_image, intrinsics, depth_scale)
+        pbar.update(1)
     
     # Statistical outlier removal
-    pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    print("  ⏳ Removing outliers...")
+    with tqdm(total=1, desc="  Outlier removal", leave=False) as pbar:
+        pcd, _ = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        pbar.update(1)
     
     # Step 2: Convert to mesh
     mesh = point_cloud_to_mesh(pcd, method=method)

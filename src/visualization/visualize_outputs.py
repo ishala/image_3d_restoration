@@ -6,11 +6,20 @@ def find_mesh_or_pointcloud(dense_dir):
     """Find mesh or point cloud file in dense directory
     
     Args:
-        dense_dir: Path to dense reconstruction directory
+        dense_dir: Path to dense reconstruction directory (or inference results)
         
     Returns:
         tuple: (file_path, file_type) where file_type is 'mesh' or 'pointcloud'
     """
+    # Priority 0: Check for inference results (mesh_3d.ply/obj in root)
+    mesh_3d_ply = os.path.join(dense_dir, "mesh_3d.ply")
+    if os.path.exists(mesh_3d_ply):
+        return mesh_3d_ply, 'mesh'
+    
+    mesh_3d_obj = os.path.join(dense_dir, "mesh_3d.obj")
+    if os.path.exists(mesh_3d_obj):
+        return mesh_3d_obj, 'mesh'
+    
     # Priority 1: Check mesh directory for surface meshes (usually has best vertex colors)
     mesh_dir = os.path.join(dense_dir, "mesh")
     if os.path.exists(mesh_dir):
@@ -354,3 +363,66 @@ def save_screenshot(dense_dir, output_path="screenshot.png", resolution=(1920, 1
     except Exception as e:
         print(f"❌ Error saving screenshot: {str(e)}")
         return False
+
+if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="Visualize 3D reconstruction outputs",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Visualize inference results
+  python src/visualization/visualize_outputs.py --results_dir inference_results/single/damaged_artifact
+  
+  # Visualize COLMAP reconstruction
+  python src/visualization/visualize_outputs.py --results_dir outputs/boy_with_thorn/dense
+  
+  # Compare original vs restored
+  python src/visualization/visualize_outputs.py --compare --original outputs/artifact/dense --restored outputs/artifact/reconstruction_from_restored/dense
+  
+  # Save screenshot
+  python src/visualization/visualize_outputs.py --results_dir inference_results/single/artifact --screenshot output.png
+        """
+    )
+    
+    parser.add_argument(
+        "--results_dir", type=str, required=True,
+        help="Path to results directory (inference results or dense reconstruction)"
+    )
+    parser.add_argument(
+        "--compare", action="store_true",
+        help="Enable comparison mode (requires --original and --restored)"
+    )
+    parser.add_argument(
+        "--original", type=str,
+        help="Path to original reconstruction (for comparison mode)"
+    )
+    parser.add_argument(
+        "--restored", type=str,
+        help="Path to restored reconstruction (for comparison mode)"
+    )
+    parser.add_argument(
+        "--screenshot", type=str,
+        help="Save screenshot to specified path instead of opening viewer"
+    )
+    parser.add_argument(
+        "--artifact_name", type=str, default="Artifact",
+        help="Artifact name for comparison display"
+    )
+    
+    args = parser.parse_args()
+    
+    # Comparison mode
+    if args.compare:
+        if not args.original or not args.restored:
+            parser.error("--compare requires both --original and --restored")
+        visualize_comparison(args.original, args.restored, args.artifact_name)
+    
+    # Screenshot mode
+    elif args.screenshot:
+        save_screenshot(args.results_dir, args.screenshot)
+    
+    # Normal visualization mode
+    else:
+        visualize_outputs(args.results_dir)

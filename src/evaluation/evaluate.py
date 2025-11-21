@@ -14,9 +14,10 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from PIL import Image
-import matplotlib.pyplot as plt
-import seaborn as sns
 from collections import defaultdict
+
+# Lazy import matplotlib to avoid import errors
+# Will be imported only when needed (in plotting functions)
 
 # Import model and datasets
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -149,7 +150,7 @@ class ModelEvaluator:
     def evaluate_batch(self, batch):
         """Evaluate a single batch"""
         damaged = batch['damaged'].to(self.device)
-        clean = batch['clean'].to(self.device)
+        clean = batch.get('ground_truth', batch.get('clean')).to(self.device)  # Support both keys
         depth = batch.get('depth', None)
         
         # Forward pass
@@ -216,12 +217,18 @@ class ModelEvaluator:
     
     def _save_example_batch(self, batch, restored, batch_idx, output_dir):
         """Save example images for visualization"""
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("⚠️ Matplotlib not available, skipping visualization")
+            return
+        
         examples_dir = os.path.join(output_dir, "examples")
         os.makedirs(examples_dir, exist_ok=True)
         
         # Get first image from batch
         damaged = batch['damaged'][0].cpu()
-        clean = batch['clean'][0].cpu()
+        clean = batch.get('ground_truth', batch.get('clean'))[0].cpu()  # Support both keys
         restored_img = restored[0].cpu()
         
         # Denormalize from [-1,1] to [0,1]
@@ -270,6 +277,12 @@ class ModelEvaluator:
 
 def plot_metrics_comparison(results_dict, output_path):
     """Plot comparison of metrics across different models/settings"""
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("⚠️ Matplotlib not available, skipping plot")
+        return
+    
     metrics = ['psnr', 'ssim', 'mae']
     
     fig, axes = plt.subplots(1, len(metrics), figsize=(15, 5))

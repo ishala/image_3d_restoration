@@ -59,7 +59,10 @@ def load_model(checkpoint_dir, device):
 
 
 def collect_dataset_pairs(output_root, artifact_name=None):
-    """Collect training/validation dataset pairs from outputs folder"""
+    """
+    Collect training/validation dataset pairs from outputs folder
+    DEPRECATED: Use collect_dataset_from_data_folder instead
+    """
     targets = [artifact_name] if artifact_name else [
         d for d in os.listdir(output_root) 
         if os.path.isdir(os.path.join(output_root, d))
@@ -82,6 +85,57 @@ def collect_dataset_pairs(output_root, artifact_name=None):
             val_pairs.append((images_dir, depth_dir))
         else:
             train_pairs.append((images_dir, depth_dir))
+    
+    return train_pairs, val_pairs
+
+
+def collect_dataset_from_data_folder(data_root="data"):
+    """
+    Collect training/validation dataset from data/train and data/test folders
+    
+    Structure expected:
+    data/
+        train/
+            artifact1/
+                image1.jpg
+                image2.jpg
+            artifact2/
+        test/
+            artifact1/
+            artifact2/
+    
+    Returns:
+        train_pairs: list of (images_dir, images_dir) - same dir for clean images
+        val_pairs: list of (images_dir, images_dir) - test set
+    """
+    train_pairs = []
+    val_pairs = []
+    
+    train_dir = os.path.join(data_root, "train")
+    test_dir = os.path.join(data_root, "test")
+    
+    # Collect training data
+    if os.path.isdir(train_dir):
+        for artifact in os.listdir(train_dir):
+            artifact_path = os.path.join(train_dir, artifact)
+            if os.path.isdir(artifact_path):
+                # Check if has images
+                images = [f for f in os.listdir(artifact_path) 
+                         if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+                if images:
+                    # Use same directory for both clean and depth
+                    # Dataset will handle damage simulation
+                    train_pairs.append((artifact_path, artifact_path))
+    
+    # Collect validation/test data
+    if os.path.isdir(test_dir):
+        for artifact in os.listdir(test_dir):
+            artifact_path = os.path.join(test_dir, artifact)
+            if os.path.isdir(artifact_path):
+                images = [f for f in os.listdir(artifact_path)
+                         if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+                if images:
+                    val_pairs.append((artifact_path, artifact_path))
     
     return train_pairs, val_pairs
 
@@ -146,14 +200,21 @@ def mode_train(args, output_root, device):
     print("MODE: TRAIN - Model Training")
     print("="*60 + "\n")
     
-    # Collect dataset pairs
-    train_pairs, val_pairs = collect_dataset_pairs(output_root, args.artifact)
+    # Try new data structure first (data/train, data/test)
+    train_pairs, val_pairs = collect_dataset_from_data_folder("data")
+    
+    # Fallback to old structure (outputs/) if new structure is empty
+    if not train_pairs:
+        print("ℹ️  data/train not found, trying outputs/ structure...")
+        train_pairs, val_pairs = collect_dataset_pairs(output_root, args.artifact)
     
     if not train_pairs:
         raise RuntimeError(
             "❌ No training data found!\n"
-            "Make sure outputs/*/images and outputs/*/dense/depth_maps exist.\n"
-            "Run --mode reconstruct first."
+            "Expected structure:\n"
+            "  data/train/[artifact_name]/image1.jpg\n"
+            "  data/test/[artifact_name]/image1.jpg\n"
+            "Or run --mode reconstruct first for outputs/ structure."
         )
     
     print(f"📊 Dataset statistics:")
@@ -364,7 +425,12 @@ def mode_evaluate(args, device):
     
     # Validate inputs
     if args.test_dir is None:
-        raise ValueError("--test_dir is required for evaluate mode")
+        # Try to use data/test as default
+        if os.path.isdir("data/test"):
+            args.test_dir = "data/test"
+            print("ℹ️  Using default test directory: data/test")
+        else:
+            raise ValueError("--test_dir is required for evaluate mode (or create data/test/)")
     
     if not os.path.isdir(args.test_dir):
         raise NotADirectoryError(f"❌ Test directory not found: {args.test_dir}")
@@ -396,17 +462,32 @@ def mode_evaluate(args, device):
     model.eval()
     print("✅ Model loaded successfully\n")
     
-    # Prepare test dataset
-    test_images = os.path.join(args.test_dir, "images")
-    test_depth = os.path.join(args.test_dir, "dense", "depth_maps")
-    
-    if not os.path.exists(test_images):
-        raise NotADirectoryError(f"Test images not found: {test_images}")
-    
+    # Prepare test dataset from data/test structure
     print("📦 Loading test dataset...")
+    test_pairs = []
+    
+    # Check if test_dir has subdirectories (artifact folders)
+    subdirs = [d for d in os.listdir(args.test_dir) 
+               if os.path.isdir(os.path.join(args.test_dir, d))]
+    
+    if subdirs:
+        # Structure: data/test/artifact1/, artifact2/, etc.
+        for artifact in subdirs:
+            artifact_path = os.path.join(args.test_dir, artifact)
+            images = [f for f in os.listdir(artifact_path)
+                     if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            if images:
+                test_pairs.append((artifact_path, artifact_path))
+    else:
+        # Single directory with images
+        test_pairs.append((args.test_dir, args.test_dir))
+    
+    if not test_pairs:
+        raise RuntimeError(f"No images found in {args.test_dir}")
+    
     from src.datasets.restoration_dataset import RestorationDataset
     test_dataset = RestorationDataset(
-        pairs=[(test_images, test_depth)],
+        pairs=test_pairs,
         augment=False,
         use_advanced_damage=False
     )
@@ -693,8 +774,7 @@ Examples:
         mode_pretrain(args, device)
     
     elif args.mode == "evaluate":
-        if args.test_dir is None:
-            parser.error("--test_dir is required for evaluate mode")
+        # test_dir is optional now, defaults to data/test
         mode_evaluate(args, device)
 
 

@@ -45,36 +45,50 @@ def random_mask(h, w, max_patches=3):
 class RestorationDataset(Dataset):
     """
     pairs: list of tuples (images_dir, depth_dir)
+           If images_dir == depth_dir, will use depth estimation or synthetic depth
     dataset collects all image files inside images_dir and matches depth maps by filename if possible.
-    Produces dict with 'damaged', 'ground_truth', 'depth' tensors normalized to [-1,1] (img) and depth in [-1,1].
+    Produces dict with 'damaged', 'clean', 'depth' tensors normalized to [-1,1] (img) and depth in [-1,1].
     
     Features:
     - Realistic damage simulation (cracks, erosion, weathering)
     - Simple damage fallback for compatibility
+    - Supports both separate depth maps and depth estimation
     """
 
     def __init__(self, pairs, augment=True, target_size=(512, 512), use_advanced_damage=True):
         self.items = []
         for img_dir, depth_dir in pairs:
-            if not os.path.isdir(img_dir) or not os.path.isdir(depth_dir):
+            if not os.path.isdir(img_dir):
                 continue
+            
+            # Check if depth_dir exists and is different from img_dir
+            has_separate_depth = os.path.isdir(depth_dir) and depth_dir != img_dir
+            
             for fn in sorted(os.listdir(img_dir)):
                 if fn.lower().endswith((".jpg", ".jpeg", ".png")):
                     img_path = os.path.join(img_dir, fn)
-                    # try to find depth file with same name (png or pfm). Prefer png in depth_dir.
-                    base = os.path.splitext(fn)[0]
-                    cand = None
-                    for ext in [".png", ".jpg", ".pfm", ".exr"]:
-                        p = os.path.join(depth_dir, base + ext)
-                        if os.path.exists(p):
-                            cand = p
-                            break
-                    if cand is None:
-                        # fallback: any depth file in folder
-                        files = [os.path.join(depth_dir, x) for x in os.listdir(depth_dir) if x.lower().endswith((".png", ".jpg"))]
-                        cand = files[0] if files else None
-                    if cand:
-                        self.items.append((img_path, cand))
+                    
+                    if has_separate_depth:
+                        # Try to find depth file with same name
+                        base = os.path.splitext(fn)[0]
+                        cand = None
+                        for ext in [".png", ".jpg", ".pfm", ".exr"]:
+                            p = os.path.join(depth_dir, base + ext)
+                            if os.path.exists(p):
+                                cand = p
+                                break
+                        if cand is None:
+                            # Fallback: any depth file in folder
+                            files = [os.path.join(depth_dir, x) for x in os.listdir(depth_dir) 
+                                   if x.lower().endswith((".png", ".jpg"))]
+                            cand = files[0] if files else None
+                        
+                        if cand:
+                            self.items.append((img_path, cand))
+                    else:
+                        # No separate depth directory, use synthetic depth
+                        self.items.append((img_path, None))
+        
         self.augment = augment
         self.target_size = target_size
         self.to_tensor = T.Compose([T.Resize(self.target_size), T.ToTensor()])
@@ -86,7 +100,8 @@ class RestorationDataset(Dataset):
             print("✅ Using advanced realistic damage simulation")
         else:
             self.damage_simulator = None
-            print("ℹ️ Using simple random mask damage")
+            if self.augment:
+                print("ℹ️ Using simple random mask damage")
 
     def __len__(self):
         return len(self.items)
@@ -96,7 +111,17 @@ class RestorationDataset(Dataset):
         
         try:
             gt = Image.open(img_path).convert("RGB")
-            depth = Image.open(depth_path).convert("L")
+            
+            # Load or generate depth
+            if depth_path and os.path.exists(depth_path):
+                depth = Image.open(depth_path).convert("L")
+            else:
+                # Generate synthetic depth map (simple gradient for now)
+                w, h = gt.size
+                depth_array = np.linspace(0, 255, h, dtype=np.uint8)
+                depth_array = np.tile(depth_array[:, np.newaxis], (1, w))
+                depth = Image.fromarray(depth_array, mode='L')
+        
         except Exception as e:
             print(f"❌ Error loading {img_path}: {e}")
             # Return first item as fallback
