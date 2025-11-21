@@ -1,51 +1,11 @@
-# === Core Python Utilities ===
 numpy==1.24.4
-scipy==1.11.4
-pandas==2.0.3
-tqdm==4.66.1
-
-# === Image Processing ===
-opencv-python==4.8.1.78
-scikit-image==0.21.0
-Pillow==10.0.1
-
-# === Deep Learning (PyTorch stack) ===
-# torch==2.0.1
-# torchvision==0.15.2
-# torchaudio==2.0.2
-
-# === HuggingFace / Diffusion Models ===
-transformers==4.34.0
-diffusers==0.20.2
-accelerate==0.23.0
-safetensors==0.4.0
-timm>=0.9.0  # For pretrained vision models
-
-# === GAN/Inpainting Models (LaMa / DeepFill) ===
-# LaMa dependencies
-albumentations==1.3.1
-pyyaml==6.0.1
-
-# === 3D Processing ===
 open3d==0.17.0
-trimesh==4.0.5
-pyvista==0.42.3
-
-# === 3D Deep Learning ===
-# PyTorch3D kadang tricky, install manual sesuai CUDA
-# Untuk keperluan Chamfer Distance & evaluasi
-# pytorch3d==0.7.5
-
-# === Visualization ===
-matplotlib==3.7.3
-plotly==5.17.0
-
-# === Utility for 3D files (OBJ, PLY) ===
-meshio==5.3.4
-
-# === Optional (NeRF / COLMAP wrapper) ===
-# nerfstudio==0.3.3
-# pycolmap==0.4.0
-
-# === NEW: Depth Estimation & SSIM ===
-pytorch-msssim>=1.0.0  # For SSIM metrics
+opencv_python==4.8.1.78
+opencv_python_headless==4.11.0.86
+Pillow==10.0.1
+Pillow==12.0.0
+pycolmap==3.13.0
+pytorch_msssim==1.0.0
+torch==2.0.1+cu118
+torchvision==0.15.2+cu118
+transformers==4.27.4

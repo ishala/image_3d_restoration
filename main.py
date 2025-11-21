@@ -13,6 +13,8 @@ from src.datasets.restoration_dataset import restore_images_with_model
 from src.ai.single_inference import run_single_inference
 from src.ai.multi_inference import run_multi_inference
 from src.ai.self_supervised import run_self_supervised_pretraining
+from src.evaluation.evaluate import ModelEvaluator, save_results_table
+import json
 
 
 # ============================================================================
@@ -229,7 +231,8 @@ def mode_single_inference(args, device):
         device=device,
         input_image=args.input_image,
         output_dir=output_dir,
-        visualize=not args.no_viz
+        visualize=not args.no_viz,
+        ground_truth=args.ground_truth
     )
     
     # Print summary
@@ -240,6 +243,15 @@ def mode_single_inference(args, device):
     print(f"  - Restored image: {results['restored_image']}")
     print(f"  - Depth map: {results['depth_map']}")
     print(f"  - 3D mesh: {', '.join(results['mesh_files'])}")
+    
+    # Print metrics if evaluated
+    if 'metrics' in results:
+        print(f"\n📊 Quality Metrics:")
+        print(f"  - PSNR: {results['metrics']['psnr']:.2f} dB")
+        print(f"  - SSIM: {results['metrics']['ssim']:.4f}")
+        print(f"  - MAE:  {results['metrics']['mae']:.4f}")
+        print(f"  - Metrics saved: {output_dir}/metrics.json")
+    
     print("="*60 + "\n")
 
 
@@ -335,6 +347,107 @@ def mode_pretrain(args, device):
     print("     python main.py --mode train --use_pretrained_encoder")
     print("  2. Or continue with regular training:")
     print("     python main.py --mode train")
+    print("="*60 + "\n")
+
+
+# ============================================================================
+# MODE: EVALUATE (NEW!)
+# ============================================================================
+
+def mode_evaluate(args, device):
+    """
+    Comprehensive evaluation of trained model on test set
+    """
+    print("\n" + "="*60)
+    print("MODE: EVALUATE - Model Evaluation")
+    print("="*60 + "\n")
+    
+    # Validate inputs
+    if args.test_dir is None:
+        raise ValueError("--test_dir is required for evaluate mode")
+    
+    if not os.path.isdir(args.test_dir):
+        raise NotADirectoryError(f"❌ Test directory not found: {args.test_dir}")
+    
+    checkpoint_path = "checkpoints/best_model.pth"
+    if not os.path.exists(checkpoint_path):
+        checkpoint_path = "checkpoints/last_model.pth"
+    
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError("❌ No checkpoint found in checkpoints/")
+    
+    # Setup output directory
+    if args.output_dir is None:
+        output_dir = "results/eval"
+    else:
+        output_dir = args.output_dir
+    
+    os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"📂 Test directory: {args.test_dir}")
+    print(f"🎯 Checkpoint: {checkpoint_path}")
+    print(f"💾 Output: {output_dir}")
+    print(f"🔧 Device: {device}\n")
+    
+    # Load model
+    print(f"📥 Loading model...")
+    model = PretrainedRestorationModel().to(device)
+    model.load_state_dict(torch.load(checkpoint_path, map_location=device))
+    model.eval()
+    print("✅ Model loaded successfully\n")
+    
+    # Prepare test dataset
+    test_images = os.path.join(args.test_dir, "images")
+    test_depth = os.path.join(args.test_dir, "dense", "depth_maps")
+    
+    if not os.path.exists(test_images):
+        raise NotADirectoryError(f"Test images not found: {test_images}")
+    
+    print("📦 Loading test dataset...")
+    from src.datasets.restoration_dataset import RestorationDataset
+    test_dataset = RestorationDataset(
+        pairs=[(test_images, test_depth)],
+        augment=False,
+        use_advanced_damage=False
+    )
+    print(f"✅ Loaded {len(test_dataset)} test samples\n")
+    
+    # Create evaluator
+    evaluator = ModelEvaluator(model, device, use_lpips=args.use_lpips)
+    
+    # Run evaluation
+    stats = evaluator.evaluate_dataset(
+        test_dataset,
+        batch_size=args.batch_size,
+        save_examples=args.save_examples,
+        output_dir=output_dir
+    )
+    
+    # Print results
+    print("\n" + "="*60)
+    print("📊 EVALUATION RESULTS")
+    print("="*60)
+    for metric, values in stats.items():
+        print(f"\n{metric.upper()}:")
+        print(f"  Mean:   {values['mean']:.4f}")
+        print(f"  Std:    {values['std']:.4f}")
+        print(f"  Min:    {values['min']:.4f}")
+        print(f"  Max:    {values['max']:.4f}")
+        print(f"  Median: {values['median']:.4f}")
+    print("="*60 + "\n")
+    
+    # Save results
+    results_json = os.path.join(output_dir, "evaluation_results.json")
+    with open(results_json, 'w') as f:
+        json.dump(stats, f, indent=2)
+    print(f"💾 Results saved to: {results_json}")
+    
+    # Save markdown table
+    results_md = os.path.join(output_dir, "results_table.md")
+    save_results_table(stats, results_md)
+    
+    print("\n" + "="*60)
+    print("EVALUATION COMPLETED")
     print("="*60 + "\n")
 
 
@@ -462,7 +575,7 @@ Examples:
     )
     parser.add_argument(
         "--mode", type=str, 
-        choices=['reconstruct', 'train', 'inference', 'single_inference', 'multi_inference', 'pretrain'],
+        choices=['reconstruct', 'train', 'inference', 'single_inference', 'multi_inference', 'pretrain', 'evaluate'],
         default="reconstruct",
         help="Operation mode"
     )
@@ -489,6 +602,10 @@ Examples:
     parser.add_argument(
         "--input_image", type=str, default=None,
         help="Input image path for single_inference mode"
+    )
+    parser.add_argument(
+        "--ground_truth", type=str, default=None,
+        help="Ground truth clean image path (optional, for quality evaluation)"
     )
     
     # NEW: Multi inference arguments
@@ -528,6 +645,20 @@ Examples:
         help="Use pretrained encoder from self-supervised pretraining in training mode"
     )
     
+    # Evaluation arguments
+    parser.add_argument(
+        '--test_dir', type=str, default=None,
+        help='Path to test dataset directory (for evaluate mode)'
+    )
+    parser.add_argument(
+        '--use_lpips', action='store_true',
+        help='Use LPIPS perceptual metric in evaluation'
+    )
+    parser.add_argument(
+        '--save_examples', action='store_true', default=True,
+        help='Save example comparisons in evaluation'
+    )
+    
     args = parser.parse_args()
     
     # Setup
@@ -560,6 +691,11 @@ Examples:
         if args.pretrain_data is None:
             parser.error("--pretrain_data is required for pretrain mode")
         mode_pretrain(args, device)
+    
+    elif args.mode == "evaluate":
+        if args.test_dir is None:
+            parser.error("--test_dir is required for evaluate mode")
+        mode_evaluate(args, device)
 
 
 if __name__ == "__main__":
