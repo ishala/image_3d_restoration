@@ -1,3 +1,5 @@
+lpips==0.1.4
+matplotlib==3.7.3
 numpy==1.24.4
 open3d==0.17.0
 opencv_python==4.8.1.78
@@ -8,4 +10,5 @@ pycolmap==3.13.0
 pytorch_msssim==1.0.0
 torch==2.0.1+cu118
 torchvision==0.15.2+cu118
+tqdm==4.66.1
 transformers==4.27.4

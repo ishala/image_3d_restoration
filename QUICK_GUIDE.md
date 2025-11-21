@@ -48,7 +48,6 @@ python main.py --mode pretrain \
 
 **Output:** `checkpoints/pretrained_encoder.pth`
 
-**Kegunaan:** Meningkatkan performa model +106% SSIM pada data baru!
 
 ---
 
@@ -81,7 +80,7 @@ python main.py --mode reconstruct --dataset data/data_demo --artifact greek
 Train model untuk restorasi gambar rusak.
 
 ```bash
-# Train dengan pretrained encoder (RECOMMENDED)
+# Train dengan data dari data/train (RECOMMENDED - struktur baru)
 python main.py --mode train \
     --use_pretrained_encoder \
     --epochs 50 \
@@ -90,11 +89,25 @@ python main.py --mode train \
 # Train tanpa pretraining (baseline)
 python main.py --mode train --epochs 50 --batch_size 4
 
-# Train pada artifact spesifik
+# Train pada artifact spesifik (old structure dari outputs/)
 python main.py --mode train --artifact boy_with_thorn --epochs 30
 ```
 
-**Input:** Data dari `outputs/` (hasil reconstruct)
+**Input (Struktur Baru - Recommended):** 
+```
+data/
+  train/
+    artifact1/
+      image1.jpg
+      image2.jpg
+    artifact2/
+      ...
+  test/
+    artifact1/
+      ...
+```
+
+**Input (Struktur Lama):** Data dari `outputs/` (hasil reconstruct)
 
 **Output:** `checkpoints/`
 - `best_model.pth` - Model terbaik (highest SSIM)
@@ -105,8 +118,14 @@ python main.py --mode train --artifact boy_with_thorn --epochs 30
 - ResNet50 U-Net backbone
 - Input: RGB + Depth (4 channels)
 - Loss: 50% L1 + 30% Multi-Layer Perceptual + 20% SSIM
+- Automatic damage simulation (cracks, erosion, weathering)
 
 **Waktu:** ~30-60 menit (50 epochs, GPU)
+
+**Notes:**
+- Dataset akan otomatis generate damage simulation dari clean images
+- Tidak perlu depth maps terpisah (auto-generated)
+- Training menggunakan `data/train/`, validation menggunakan `data/test/`
 
 ---
 
@@ -294,7 +313,10 @@ o3d.visualization.draw_geometries([pcd])
 Evaluate model dengan metrik lengkap pada test set.
 
 ```bash
-# Basic evaluation
+# Automatic evaluation (uses data/test/)
+python main.py --mode evaluate
+
+# Basic evaluation with custom directory
 python main.py --mode evaluate --test_dir data/test
 
 # With LPIPS perceptual metric
@@ -307,6 +329,16 @@ python main.py --mode evaluate \
 python main.py --mode evaluate \
     --test_dir data/test \
     --output_dir results/eval_model_v2
+```
+
+**Input Structure:**
+```
+data/test/
+  artifact1/
+    image1.jpg
+    image2.jpg
+  artifact2/
+    ...
 ```
 
 **Output:** `results/eval/`
@@ -399,12 +431,16 @@ plt.show()
 Projek 3D Restoration/
 ├── main.py                          # Main entry point
 ├── requirements.txt                 # Dependencies
-├── data/
-│   └── data_demo/                   # Demo dataset (multi-view images)
-│       ├── greek/
-│       ├── boy_with_thorn/
-│       └── ...
-├── outputs/                         # Training data (dari reconstruct)
+├── data/                            # Dataset (NEW STRUCTURE)
+│   ├── train/                       # Training images
+│   │   ├── artifact1/
+│   │   │   ├── image1.jpg
+│   │   │   └── image2.jpg
+│   │   └── artifact2/
+│   └── test/                        # Test/validation images
+│       ├── artifact1/
+│       └── artifact2/
+├── outputs/                         # Training data (OLD - dari reconstruct)
 │   ├── greek/
 │   │   ├── images/                  # Original images
 │   │   ├── sparse/                  # SfM data
@@ -516,13 +552,17 @@ pip install -r requirements.txt
 python main.py --mode pretrain --pretrain_data data/unlabeled --pretrain_epochs 15
 
 # === PREPARE DATA ===
+# Option 1: Use existing data/train and data/test (RECOMMENDED)
+# Just make sure images are in data/train/artifact_name/ and data/test/artifact_name/
+
+# Option 2: Reconstruct from multi-view (for 3D mesh generation)
 python main.py --mode reconstruct --dataset data/data_demo
 
 # === TRAIN ===
 python main.py --mode train --use_pretrained_encoder --epochs 50 --batch_size 4
 
 # === EVALUATE ===
-python main.py --mode evaluate --test_dir data/test --use_lpips
+python main.py --mode evaluate  # Auto uses data/test/
 
 # === INFERENCE ===
 # Single image
